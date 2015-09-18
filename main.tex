@@ -156,9 +156,12 @@ Jiaqi Yan\\
 
 \begin{abstract}
 Realistic and scalable testing systems are critical to evaluate network applications and protocols to ensure successful real system deployments. Container-based network emulation is attractive because of the combination of many desired features of network simulators (scalability, low cost, reproducibility, and flexibility) and physical testbeds (high fidelity). 
-The success of Mininet, a popular software-defined networking (SDN) emulation testbed, demonstrates the value of such approach that we can execute unmodified binary code on a large-scale emulated network with lightweight OS-level virtualization techniques. However, an ordinary network emulator uses the system clock across all the containers even if a container is not being scheduled to run. This leads to the issue of temporal fidelity, especially with high workloads. 
+The success of Mininet, a popular software-defined networking (SDN) emulation testbed, demonstrates the value of such approach that we can execute unmodified binary code on a large-scale emulated network with lightweight OS-level virtualization techniques. 
+
+However, an ordinary network emulator uses the system clock across all the containers even if a container is not being scheduled to run. This leads to the issue of temporal fidelity, especially with high workloads. 
 Virtual time sheds the light on the issue of preserving temporal fidelity for large-scale emulation. 
 The key insight is to trade time with system resources via precisely scaling the time of interactions between containers and physical devices by a factor of $n$, hence, making an emulated network appear to be $n$ times faster from the viewpoints of applications in the container.
+
 In this paper, we develop a lightweight Linux-container-based virtual time system and integrate the system to Mininet for fidelity and scalability enhancement. 
 We also explore adaptive time dilation scheduling for balancing speed and accuracy. 
 Experimental results demonstrate that 

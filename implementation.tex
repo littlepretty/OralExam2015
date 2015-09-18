@@ -34,13 +34,13 @@ To make a process have its own perception of time, we added the following four n
 \begin{algorithmic}[1]
 \Function{init\_virtual\_time}{\texttt{struct task\_struct *tk, int dilation}}
 \If{\texttt{dilation>0}}
-    \State \texttt{tk$\rightarrow$dilation=dilation}
     \State \texttt{tk$\rightarrow$virtual\_start\_nsec=0}
     \State \texttt{struct timespec ts}
     \State \texttt{getnstimeofday(\&ts)}
     \State \texttt{tk$\rightarrow$virtual\_start\_nsec=timespec\_to\_ns(\&ts)}
     \State \texttt{tk$\rightarrow$physical\_past\_nsec=0}
     \State \texttt{tk$\rightarrow$virtual\_past\_nsec=0}
+    \State \texttt{tk$\rightarrow$dilation=dilation}
 \EndIf
 \EndFunction
 \\
@@ -60,41 +60,61 @@ To make a process have its own perception of time, we added the following four n
 \EndFunction
 \end{algorithmic}
 \end{algorithm*}
-Algorithm \ref{Alg-DilateTimeKeeping} gives the details about how we implement the time dilation. To preserve an accurate virtual clock in the kernel, we added a private function \texttt{do\_dilatetimeofday} in the Linux's timekeeping subsystem to keep tracking the dilated virtual time based on the physical time passed and TDF. Based on process's \texttt{virtual\_start\_nsec}, the system determines the type of time to return, i.e., the physical system clock time or the virtual time.
+Algorithm \ref{Alg-DilateTimeKeeping} gives the details about how we implement the time dilation. 
+To preserve an accurate virtual clock in the kernel, we added a private function \texttt{do\_dilatetimeofday} in the Linux's timekeeping subsystem to keep tracking the dilated virtual time based on the physical time passed and TDF. 
+Based on process's \texttt{virtual\_start\_nsec}, the system determines the type of time to return, i.e., the physical system clock time or the virtual time.
 
 \texttt{virtual\_start\_nsec} in \texttt{INIT\_VIRTUAL\_TIME} should first be initialized to zero so that the next gettimeofday always returns the undilated time to compute and record the exact physical time that a process starts to use virtual time.
-To return the accurate virtual time upon requests, the duration since the last call to \texttt{do\_dilatetimeofday} is calculated and precisely scaled with TDF. To enable virtual time support for a wide range of timing-related system calls, we extensively traced the routines in Linux's subsystems that request timing information (such as \texttt{getnstimeofday}, \texttt{ktime\_get}, \texttt{ktime\_get\_ts}, etc.), and modified them to properly invoke \texttt{do\_dilatetimeofday}.
+To return the accurate virtual time upon requests, the duration since the last call to \texttt{do\_dilatetimeofday} is calculated and precisely scaled with TDF. 
+To enable virtual time support for a wide range of timing-related system calls, we extensively traced the routines in Linux's subsystems that request timing information (such as \texttt{getnstimeofday}, \texttt{ktime\_get}, \texttt{ktime\_get\_ts}, etc.), and modified them to properly invoke \texttt{do\_dilatetimeofday}.
 
 
 \subsubsection{Process-related Kernel Modifications}
 To enable the virtual time perception to processes running in a network emulator, we added the following new system calls.
 \begin{itemize}
-\item \texttt{virtualtimeunshare} is essentially the \texttt{unshare} system call with time dilation inputs. It is used by container-based emulators, such as Mininet, to create emulated nodes. \texttt{virtualtimeunshare} creates a new process with a TDF in a different namespace of its parent process according to \texttt{flags}.
-\item \texttt{settimedilaitonfactor} offers an interface to change the TDF of a process. Note that a command executed in an emulated host is equivalent to a shell command executed by \texttt{bash}. Therefore, adjusting a process' TDF requires the change of the calling process' parent (e.g., host's \texttt{bash}), which occasionally would lead to tracing back to the root of the process tree, especially in the case of dynamic TDF adjustment. 
+\item \texttt{virtualtimeunshare} is essentially the \texttt{unshare} system call with time dilation inputs. It is used by container-based emulators, such as Mininet, to create emulated nodes. \texttt{virtualtimeunshare} creates a new process with a TDF in a different \texttt{namespace} of its parent process according to \texttt{flags}.
+\item \texttt{settimedilaitonfactor} offers an interface to change the TDF of a process. Note that a command executed in an emulated host is equivalent to forking a shell command executed by \texttt{bash}. 
+Therefore, adjusting a process' TDF requires the change of the calling process' parent (e.g., host's \texttt{bash}), which occasionally would lead to tracing back to the root of the process tree, especially in the case of dynamic TDF adjustment. 
 \end{itemize}
 
-We also modified the \texttt{do\_fork} system call to initialize the virtual-time-related attributes of a process, such as using the variable \texttt{stack\_size} to pass the TDF value. Functions in \texttt{timekeeping.c} were modified to invoke \texttt{do\_dilatetimeofday} in order to return the virtual time to system calls like \texttt{gettimeofday} and other kernel routines that request timing information.
+We also modified the \texttt{do\_fork} system call to initialize the virtual-time-related attributes of a process, such as using the variable \texttt{stack\_size} to pass the TDF value. 
+Another option is to set TDF to a default value in \texttt{virtualtimeunshare} and then relies on explicitly invoking \texttt{settimedilationfactor} to set desired TDF; this method prevents modifying the interface of creating \texttt{namespace} in traditional Linux. 
+Functions in \texttt{timekeeping.c} were modified to invoke \texttt{do\_dilatetimeofday} in order to return the virtual time to system calls like \texttt{gettimeofday} and other kernel routines that request timing information.
 
 
 \subsubsection{Networking-related Kernel Modifications}
-In this work, we focus on capturing all the related system calls and kernel routings to support virtual time in Linux container with the application of Mininet. One particular case related to Mininet is the usage of \texttt{tc}, a network quality-of-service control module in Linux\cite{TrafficControl}. For instance, we can use \texttt{tc} to rate-limit a link to 100 Mbps using Hierarchic Token Bucket (HTB) \texttt{qdisc} in Mininet. If the TDF is set to 8, the link bandwidth would be approximately 800 Mbps from the emulated hosts' viewpoints as we observed from the time-dilated \texttt{iperf3} application.
+In this work, we focus on capturing all the related system calls and kernel routings to support virtual time in Linux container with the application of Mininet. 
+One particular case related to Mininet is the usage of \texttt{tc}, a network quality-of-service control module in Linux\cite{TrafficControl}. 
+For instance, we can use \texttt{tc} to rate-limit a link to 100 Mbps using Hierarchic Token Bucket (HTB) \texttt{qdisc} in Mininet. If the TDF is set to 8, the link bandwidth would be approximately 800 Mbps from the emulated hosts' viewpoints as we observed from the time-dilated \texttt{iperf3} application.
 
-As a network module in Linux, \texttt{tc} does not reference Linux kernel's time as the way user application does. Therefore, \texttt{tc} is transparent to our virtual time system. One way to solve this problem is to modify the network scheduling code in kernel to provide \texttt{tc} with a dilated traffic rate. In the earlier example with TDF set to 8, the experiment will run 8 times slower than the real time, and we can configure \texttt{tc}'s rate limit as $rate/TDF=12.5$ Mbps to emulate a 100 Mbps link. 
-Note that we only tailored HTB in \texttt{tc}, which is the default \texttt{qdisc} used by Mininet. We will generalize the mechanism to other \texttt{qdiscs} including HFSC (Hierarchical Fair Service Curve) and TBF (Token Bucket Filter) in the future.
+As a network module in Linux, \texttt{tc} does not reference Linux kernel's time as the way user application does. 
+Therefore, \texttt{tc} is transparent to our virtual time system. One way to solve this problem is to modify the network scheduling code in kernel to provide \texttt{tc} with a dilated traffic rate. 
+In the earlier example with TDF set to 8, the experiment will run 8 times slower than the real time, and we can configure \texttt{tc}'s rate limit as $rate/TDF=12.5$ Mbps to emulate a 100 Mbps link. 
+Note that we only tailored HTB in \texttt{tc}, which is the default \texttt{qdisc} used by Mininet. 
+We will generalize the mechanism to other \texttt{qdiscs} including HFSC (Hierarchical Fair Service Curve) and TBF (Token Bucket Filter) in the future.
 
 \subsection{Network Emulator Modifications}
 \label{Sub-Sec-ImplementMininet}
 
 \subsubsection{Virtual-Time-Enabled Container}
 %Mininet uses Linux's container \cite{LXC} to enable scalable network emulation. 
-Containers allow groups of process running on the same kernel to have independent views of system resources, such as process IDs, file systems and network interfaces. We add the virtual time property to a container's \texttt{namespace}\cite{LinuxNamespace} so that every container can have its own virtual clock. We design our system in the way that minimal modifications of Mininet are needed for integration, so that the virtual time system can be easily extended to other Linux-container-based applications. 
+Containers allow groups of process running on the same kernel to have independent views of system resources, such as process IDs, file systems and network interfaces. 
+We add the virtual time property to a container's \texttt{namespace}\cite{LinuxNamespace} so that every container can have its own virtual clock. 
+We design our system in the way that minimal modifications of Mininet are needed for integration, so that the virtual time system can be easily extended to other Linux-container-based applications. 
 
-We modified the initialization procedure of Mininet, in particular, the \texttt{mnexec} program in Mininet, to process two additional parameters. When we create \texttt{Node}s in Mininet (hosts, switches, and controllers are all inherited from \texttt{Node}), users can feed in a TDF argument with \texttt{virtualtimeunshare} (as a replacement of \texttt{unshare}) with \texttt{-n} option. This way, a system-wide TDF can be conveniently set for all the emulated hosts. We also provide the ability to dynamically adjust the TDF for every emulated host during runtime. To do that, we added a new option \texttt{-t} in \texttt{mnexec} to invoke the aforementioned system call \texttt{settimedilaitonfactor} to do the actual TDF adjustment. The two modifications enable the integration of virtual time in Mininet, and also serve as the basis of the adaptive TDF management.
+We modified the initialization procedure of Mininet, in particular, the \texttt{mnexec} program in Mininet, to process two additional parameters. 
+When we create \texttt{Node}s in Mininet (hosts, switches, and controllers are all inherited from \texttt{Node}), users can feed in a TDF argument with \texttt{virtualtimeunshare} (as a replacement of \texttt{unshare}) with \texttt{-n} option. 
+This way, a system-wide TDF can be conveniently set for all the emulated hosts. We also provide the ability to dynamically adjust the TDF for every emulated host during runtime. 
+To do that, we added a new option \texttt{-t} in \texttt{mnexec} to invoke the aforementioned system call \texttt{settimedilaitonfactor} to do the actual TDF adjustment. 
+The two modifications enable the integration of virtual time in Mininet, and also serve as the basis of the adaptive TDF management.
 
 \subsubsection{Adaptive TDF Scheduling}
 To optimize the performance of the virtual-time-enabled Mininet, we developed an adaptive TDF scheduler through two python modules \texttt{MininetMonitor} and \texttt{DilationAdaptor} (refer to Emulation Monitor and Time Dilation Adaptor in Figure \ref{Fig-ContainerVirtualTime}) to accelerate the experiment speed while preserving high fidelity.
 
-\texttt{MininetMonitor} is responsible to monitor the CPU usage of the entire emulation system, consisting of a group of processes including the Mininet emulator, the Open vSwitch module, and emulated nodes (e.g., SDN controllers, hosts and switches). Also, applications are dynamically created, executed and destroyed within containers, in the form of child processes of their parent containers. \texttt{MininetMonitor} utilizes the \texttt{ps} command to collect the group's aggregate CPU percentage and periodically computes and passes the average CPU load statistics to \texttt{DilationAdaptor}. The core of \texttt{DilationAdaptor} is an adaptive algorithm to calculate an appropriate \textit{TDF}. %Only after receiving a new \textit{TDF} can Mininet pause the experiment and update its global time dilation factor. Otherwise it enters the next Epoch directly. 
+\texttt{MininetMonitor} is responsible to monitor the CPU usage of the entire emulation system, consisting of a group of processes including the Mininet emulator, the Open vSwitch module, and emulated nodes (e.g., SDN controllers, hosts and switches). 
+Also, applications are dynamically created, executed and destroyed within containers, in the form of child processes of their parent containers. 
+\texttt{MininetMonitor} utilizes the \texttt{ps} command to collect the group's aggregate CPU percentage and periodically computes and passes the average CPU load statistics to \texttt{DilationAdaptor}. 
+The core of \texttt{DilationAdaptor} is an adaptive algorithm to calculate an appropriate \textit{TDF}. %Only after receiving a new \textit{TDF} can Mininet pause the experiment and update its global time dilation factor. Otherwise it enters the next Epoch directly. 
 Global \textit{TDF} updating was achieved by invoking the \texttt{mnexec\ -t\ tdf} program for every running host. 
 
 
@@ -146,10 +166,21 @@ Global \textit{TDF} updating was achieved by invoking the \texttt{mnexec\ -t\ td
 % \end{algorithmic}
 % \end{algorithm}
 
-Our adaptive virtual time scheduling design is similar to the one used in \cite{NtwkEmultAdaptVirtTime} in spirit with two major differences. First, both techniques target on different platforms. Our technique is applied to Linux-container-based network emulation to support scalable SDN experiments, and theirs uses virtual routing and executes OpenVZ instances inside Xen. Second, their solution needs be deployed on a cluster to emulate a medium-scale network, which results in much higher communication overhead in two types: (1) every VM's monitor needs to report the CPU usage, and (2) the adaptor needs to send new TDF to every VM. Therefore, the message transmission delay in LAN and the processing delay in protocol stacks contributes to the overall communication delay. In contrast, \texttt{MininetMonitor} runs as a lightweight background thread in Mininet, and \texttt{DilationAdaptor} is simply a python object that Mininet has a reference to. The communication in our system is through synchronized queues and method invocations, which is much faster. 
+Our adaptive virtual time scheduling design is similar to the one used in \cite{NtwkEmultAdaptVirtTime} in spirit with two major differences. 
+First, both techniques target on different platforms. 
+Our technique is applied to Linux-container-based network emulation to support scalable SDN experiments, and theirs uses virtual routing and executes OpenVZ instances inside Xen. 
+Second, their solution needs be deployed on a cluster to emulate a medium-scale network, which results in much higher communication overhead in two types: (1) every VM's monitor needs to report the CPU usage, and (2) the adaptor needs to send new TDF to every VM. 
+Therefore, the message transmission delay in LAN and the processing delay in protocol stacks contributes to the overall communication delay. 
+In contrast, \texttt{MininetMonitor} runs as a lightweight background thread in Mininet, and \texttt{DilationAdaptor} is simply a python object that Mininet has a reference to. 
+The communication in our system is through synchronized queues and method invocations, which is much faster. 
 
 \subsection{Virtual Time Support for Applications in Containers}
 \label{Sub-Sec-ModificationApplications}
-Network applications running inside containers (e.g., \texttt{iperf3}\cite{iperf3} or \texttt{ping}) should also use virtual time. We do not need to modify the application code because they are running as child processes of Mininet's hosts. A child process always copies its parent's \texttt{task\_struct} when it is forked including the same \texttt{dilation} and \texttt{virtual\_start\_nsec} values. Although \texttt{virtual\_start\_nsec} does not present the virtual starting time of the child process, our algorithm is designed to work with relative values. When applications inquire about the system time, the modified kernel knows that they are using virtual clock and return the virtual clock time instead of the system clock time.
+Network applications running inside containers (e.g., \texttt{iperf3}\cite{iperf3} or \texttt{ping}) should also use virtual time. 
+We do not need to modify the application code because they are running as child processes of Mininet's hosts. 
+A child process always copies its parent's \texttt{task\_struct} when it is forked including the same \texttt{dilation} and \texttt{virtual\_start\_nsec} values. 
+Although \texttt{virtual\_start\_nsec} does not present the virtual starting time of the child process, our algorithm is designed to work with relative values since it does necessary initial processes during \texttt{do\_fork}. 
+When applications inquire about the system time, the modified kernel knows that they are using virtual clock and return the virtual clock time instead of the system clock time.
 
-One issue we notice is that the 64-bit Linux kernel running on Intel-based architectures provides the Virtual Dynamic Shared Object (vDSO) and the \texttt{vsyscall} mechanism to reduce the overhead of context switches caused by the frequently invoked system calls, for example, \texttt{gettimeofday} and \texttt{time}\cite{VDSO}. Therefore, applications may bypass our virtual-time-based system calls unless we explicitly use the \texttt{syscall} function. Our solution is to disable vDSO with respect to \texttt{\_\_vdso\_gettimeofday} in order to transparently offer virtual time to applications in the containers.
+One issue we notice is that the 64-bit Linux kernel running on Intel-based architectures provides the Virtual Dynamic Shared Object (vDSO) and the \texttt{vsyscall} mechanism to reduce the overhead of context switches caused by the frequently invoked system calls, for example, \texttt{gettimeofday} and \texttt{time}\cite{VDSO}. 
+Therefore, applications may bypass our virtual-time-based system calls unless we explicitly use the \texttt{syscall} function. Our solution is to disable vDSO with respect to \texttt{\_\_vdso\_gettimeofday} in order to transparently offer virtual time to applications in the containers.
