@@ -23,7 +23,9 @@ all:
 	# $(PS2PDF) $(FILE_NAME).ps
 
 view: all
-	$(VIEWER) $(FILE_NAME).pdf
+	mv $(FILE_NAME).pdf jiaqi_yan_fall15.pdf
+	FILE_NAME=jiaqi_yan_fall15.pdf
+	$(VIEWER) jiaqi_yan_fall15.pdf
 	rm *.log *.aux *.dvi *.out *.blg *.bbl *.bak
 
 clean:
