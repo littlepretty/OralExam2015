@@ -151,13 +151,30 @@ Actually, \texttt{iperf3} intensively invokes \texttt{gettimeofday}, because its
 \label{Sec-CaseStudy}
 Network emulation testbeds are widely used to test and evaluate designs of network applications and protocols with the goal of discovering design limitations and implementation faults before the real system deployment. In this section, we present a case study to demonstrate how our virtual-time-enabled Mininet has been utilized to reproduce and validate the limitations of the equal-cost multi-path (ECMP) routing strategy in a data center network.
 
-Many modern data center networks employ multi-rooted hierarchical tree topologies, and therefore ECMP-based protocols \cite{ECMP} are commonly used in data center networks for load-balancing traffic over multiple paths. When an ECMP-enabled switch has multiple next-hops on the best paths to a single destination, it selects the forwarding path by performing a modulo-N hash over the selected fields of a packet's header to ensure per-flow consistency. The key limitation of ECMP is that the communication bottleneck would occur when several large and long-lived flows collide on their hash and being forwarded to the same output port \cite{Hedera}. We borrowed the experiment scenario on a physical testbed described in \cite{Hedera}, and created a set of emulation experiments in Mininet to demonstrate the limitation of ECMP. We built a fat-tree topology in Mininet as shown in Figure \ref{Fig-FattreeTopoExample}, and generated stride-style traffic patterns. Note that stride($i$) means that a host with index $x$ sends to the host with index $(x + i)$ mod $n$, where $n$ is the number of hosts \cite{Hedera}. The hash-based ECMP mechanism is provided by the RipL-POX SDN controller \cite{RipLPox}. The Mininet code was developed with reference to \cite{ReproNetReserch}. In all the following experiments, we set up 8 sender-receiver pairs transmitting stride-pattern traffic flows using step 1 and 4.
+Many modern data center networks employ multi-rooted hierarchical tree topologies, and therefore ECMP-based protocols \cite{ECMP} are commonly used in data center networks for load-balancing traffic over multiple paths. When an ECMP-enabled switch has multiple next-hops on the best paths to a single destination, it selects the forwarding path by performing a modulo-N hash over the selected fields of a packet's header to ensure per-flow consistency. The key limitation of ECMP is that the communication bottleneck would occur when several large and long-lived flows collide on their hash and being forwarded to the same output port \cite{Hedera}. 
+We borrowed the experiment scenario on a physical testbed described in \cite{Hedera}, and created a set of emulation experiments in Mininet to demonstrate the limitation of ECMP. We built a fat-tree topology in Mininet as shown in Figure \ref{Fig-FattreeTopoExample}, and generated stride-style traffic patterns. Note that stride($i$) means that a host with index $x$ sends to the host with index $(x + i)$ mod $n$, where $n$ is the number of hosts \cite{Hedera}. 
+The hash-based ECMP mechanism is provided by the RipL-POX SDN controller \cite{RipLPox}. The Mininet code was developed with reference to \cite{ReproNetReserch}. In all the following experiments, we set up 8 sender-receiver pairs transmitting stride-pattern traffic flows using step 1 and 4. Figure \ref{Fig-FattreeTopoExampleStride1} shows the worst-case collision of 2 flows, distinguished by color, when stride step is 1; while in Figure \ref{Fig-FattreeTopoExampleStride4}, we see that 2 TCP flows will cause a lot of collision between core layer and aggregate layer, which is very common case.
+
 
 \begin{figure*}[htbp]
 \centering
 \epsfig{file=figures/TopoFatTreeExample.eps, height=1.4in, width=4.8in}
 \caption{\textbf{A Data Center Network with a Degree-4 Fat Tree Topology}}
 \label{Fig-FattreeTopoExample}
+\end{figure*}
+
+\begin{figure*}[htbp]
+\centering
+\epsfig{file=figures/TopoFatTreeExampleStride1.eps, height=1.4in, width=4.8in}
+\caption{\textbf{Worst-case TCP Flows with Stride Step = 1}}
+\label{Fig-FattreeTopoExampleStride1}
+\end{figure*}
+
+\begin{figure*}[htbp]
+\centering
+\epsfig{file=figures/TopoFatTreeExampleStride4.eps, height=1.4in, width=4.8in}
+\caption{\textbf{Common case TCP Flows with Stride Step = 4}}
+\label{Fig-FattreeTopoExampleStride4}
 \end{figure*}
 
 We first set all the link bandwidth (switch-to-switch and switch-to-host) to 100 Mbps, and conducted each experiment over three independent runs. The average throughput of 8 TCP flows was plotted in Figure \ref{Fig-FatTreeAvgBw100M}, and each individual flow's throughput (24 in total) was plotted in Figure \ref{Fig-FatTreeIndividualBw100M}. The limitation of ECMP presented in \cite{Hedera} was clearly observed. When many conflicting flows occurred with stride-4 flow patterns, the average throughput in the fat-tree network dramatically fell below 30 Mbps with up to 75\% throughput drop. As shown in Figure \ref{Fig-FatTreeIndividualBw100M}, every flow's throughput was largely affected by the hash collision limitation of ECMP in the stride-4 scenario.
